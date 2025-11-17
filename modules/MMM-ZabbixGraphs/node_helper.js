@@ -156,6 +156,15 @@ module.exports = NodeHelper.create({
     chartUrl.searchParams.set("graphid", config.graphId);
     chartUrl.searchParams.set("width", config.width || 600);
     chartUrl.searchParams.set("height", config.height || 300);
+    if (typeof config.period === "number" && config.period > 0) {
+      chartUrl.searchParams.set("period", config.period);
+    }
+    if (typeof config.stime === "string" && config.stime.trim().length > 0) {
+      chartUrl.searchParams.set("stime", config.stime.trim());
+    }
+    if (typeof config.timeShift === "string" && config.timeShift.trim().length > 0) {
+      chartUrl.searchParams.set("timeshift", config.timeShift.trim());
+    }
     if (!this.usesApiToken(config) && authToken) {
       chartUrl.searchParams.set("auth", authToken);
     }
