@@ -125,6 +125,22 @@ Older Zabbix versions (≤ 7.0) do not expose the API token UI. In that case kee
 - Run MagicMirror with `npm start dev` to see console output. Any API errors logged by the helper will show up there.
 - Ensure the user has permission to view the chosen `graphId`. A `Graph was not found` error usually indicates missing rights or a typo in the ID.
 
+## Development & Testing
+
+The module includes a Jest suite so you can validate its behavior outside of MagicMirror. The tests simulate Zabbix API calls,
+expired sessions, dashboard widget resolution, and PNG downloads, ensuring helper changes do not break authentication or graph
+rendering logic.
+
+```bash
+cd modules/MMM-ZabbixGraphs
+npm install
+npm test
+```
+
+The test run displays the mocked API traffic along with any console warnings you would otherwise see in the MagicMirror logs. If
+you are iterating on UI tweaks, keep `npm start dev` running in your MagicMirror directory to confirm that each module instance
+refreshes in sync with the helper output.
+
 ## How it Works
 
 1. `MMM-ZabbixGraphs.js` schedules periodic refreshes and requests data from the helper.
