@@ -127,6 +127,7 @@ module.exports = NodeHelper.create({
   async callZabbixApi(method, params, config, authToken) {
     const apiUrl = this.getApiUrl(config.zabbixUrl);
     const useToken = this.usesApiToken(config);
+    const { controller, dispose } = this.createTimeoutController(config);
     const body = {
       jsonrpc: "2.0",
       method,
@@ -145,30 +146,40 @@ module.exports = NodeHelper.create({
       headers["X-Auth-Token"] = token;
     }
 
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body)
-    });
+    try {
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
 
-    if (!response.ok) {
-      const err = new Error(`Zabbix API HTTP ${response.status}`);
-      if (!useToken) {
-        err.authResetKey = this.getAuthKey(config);
+      if (!response.ok) {
+        const err = new Error(`Zabbix API HTTP ${response.status}`);
+        if (!useToken) {
+          err.authResetKey = this.getAuthKey(config);
+        }
+        throw err;
       }
-      throw err;
-    }
 
-    const data = await response.json();
-    if (data.error) {
-      const err = new Error(data.error.message || "Unknown Zabbix API error");
-      if (!useToken && data.error.data && data.error.data.includes("re-login")) {
-        err.authResetKey = this.getAuthKey(config);
+      const data = await response.json();
+      if (data.error) {
+        const err = new Error(data.error.message || "Unknown Zabbix API error");
+        if (!useToken && data.error.data && data.error.data.includes("re-login")) {
+          err.authResetKey = this.getAuthKey(config);
+        }
+        throw err;
       }
-      throw err;
-    }
 
-    return data.result;
+      return data.result;
+    } catch (error) {
+      if (error.name === "AbortError") {
+        throw this.buildTimeoutError(config);
+      }
+      throw error;
+    } finally {
+      dispose();
+    }
   },
 
   async fetchGraphImage(config, authToken) {
@@ -197,7 +208,18 @@ module.exports = NodeHelper.create({
       headers["X-Auth-Token"] = token;
     }
 
-    const response = await fetch(chartUrl.toString(), { headers });
+    const { controller, dispose } = this.createTimeoutController(config);
+    let response;
+    try {
+      response = await fetch(chartUrl.toString(), { headers, signal: controller.signal });
+    } catch (error) {
+      if (error.name === "AbortError") {
+        throw this.buildTimeoutError(config);
+      }
+      throw error;
+    } finally {
+      dispose();
+    }
     if (!response.ok) {
       throw new Error(`Unable to download graph image (${response.status})`);
     }
@@ -269,5 +291,34 @@ module.exports = NodeHelper.create({
 
   usesApiToken(config) {
     return typeof config.apiToken === "string" && config.apiToken.trim().length > 0;
+  },
+
+  getRequestTimeout(config = {}) {
+    const value = Number(config.requestTimeoutMs);
+    if (Number.isFinite(value) && value > 0) {
+      return value;
+    }
+    return 10000;
+  },
+
+  createTimeoutController(config = {}) {
+    const controller = new AbortController();
+    const timeoutMs = this.getRequestTimeout(config);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    return {
+      controller,
+      dispose: () => clearTimeout(timer)
+    };
+  },
+
+  buildTimeoutError(config = {}) {
+    const timeoutMs = this.getRequestTimeout(config);
+    const err = new Error(`Zabbix request timed out after ${timeoutMs}ms`);
+    const seconds = Math.ceil(timeoutMs / 1000);
+    err.userMessage = `Zabbix did not respond within ${seconds} second${seconds === 1 ? "" : "s"}. We'll retry automatically.`;
+    if (!this.usesApiToken(config)) {
+      err.authResetKey = this.getAuthKey(config);
+    }
+    return err;
   }
 });

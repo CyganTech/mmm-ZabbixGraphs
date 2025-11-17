@@ -17,6 +17,11 @@ describe("node_helper graph fetching", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     helper.authTokens = {};
+    helper.graphMetadataCache = {};
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   test("fetchGraphImage throws when the payload is not a PNG", async () => {
@@ -61,5 +66,64 @@ describe("node_helper graph fetching", () => {
         error: err.userMessage
       })
     );
+  });
+
+  describe("request timeouts", () => {
+    const setupAbortableFetch = () => {
+      fetch.mockImplementation((url, options = {}) => {
+        return new Promise((resolve, reject) => {
+          const signal = options.signal;
+          const rejectWithAbort = () => {
+            const abortError = new Error("aborted");
+            abortError.name = "AbortError";
+            reject(abortError);
+          };
+
+          if (!signal) {
+            rejectWithAbort();
+            return;
+          }
+          if (signal.aborted) {
+            rejectWithAbort();
+            return;
+          }
+          signal.addEventListener("abort", rejectWithAbort);
+        });
+      });
+    };
+
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    test("callZabbixApi rejects with a readable timeout message", async () => {
+      setupAbortableFetch();
+      const timeoutConfig = { ...config, requestTimeoutMs: 25 };
+
+      const promise = helper.callZabbixApi("graph.get", { graphids: [config.graphId] }, timeoutConfig, "auth");
+      jest.advanceTimersByTime(25);
+
+      await expect(promise).rejects.toMatchObject({
+        userMessage: expect.stringContaining("Zabbix did not respond"),
+        authResetKey: authKey
+      });
+    });
+
+    test("fetchGraphImage rejects with the timeout userMessage", async () => {
+      setupAbortableFetch();
+      const timeoutConfig = { ...config, requestTimeoutMs: 30 };
+
+      const promise = helper.fetchGraphImage(timeoutConfig, "auth");
+      jest.advanceTimersByTime(30);
+
+      await expect(promise).rejects.toMatchObject({
+        userMessage: expect.stringContaining("Zabbix did not respond"),
+        authResetKey: authKey
+      });
+    });
   });
 });
