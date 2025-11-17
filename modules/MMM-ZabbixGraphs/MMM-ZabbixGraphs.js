@@ -58,25 +58,37 @@ Module.register("MMM-ZabbixGraphs", {
     }
   },
 
+  renderStatusText(wrapper, text, { translate = true, classes = [] } = {}) {
+    const renderedText = translate ? this.translate(text) : text;
+    wrapper.textContent = "";
+    wrapper.appendChild(document.createTextNode(renderedText));
+
+    if (Array.isArray(classes) && classes.length > 0) {
+      wrapper.classList.add(...classes);
+    }
+  },
+
   getDom() {
     const wrapper = document.createElement("div");
     wrapper.classList.add("mmm-zabbixgraphs");
 
     if (!this.loaded) {
-      wrapper.innerHTML = this.translate("LOADING");
+      this.renderStatusText(wrapper, "LOADING");
       return wrapper;
     }
 
     if (this.error) {
-      wrapper.innerHTML = `Error: ${this.error}`;
-      wrapper.classList.add("small", "dimmed");
+      this.renderStatusText(wrapper, `Error: ${this.error}`, {
+        translate: false,
+        classes: ["small", "dimmed"]
+      });
       return wrapper;
     }
 
     if (this.graphData && this.graphData.image) {
       const title = document.createElement("div");
       title.classList.add("bright", "small", "thin", "zabbix-graph-title");
-      title.innerHTML = this.graphData.title || "Zabbix Graph";
+      title.textContent = this.graphData.title || "Zabbix Graph";
       wrapper.appendChild(title);
 
       const img = document.createElement("img");
