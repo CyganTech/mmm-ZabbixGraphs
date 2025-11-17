@@ -42,6 +42,86 @@ describe("node_helper graph fetching", () => {
       });
   });
 
+  test("handleGraphRequest emits cached metadata and the fetched image when Zabbix responds", async () => {
+    const cacheKey = helper.getGraphCacheKey(config);
+    const graphItems = [
+      { itemid: 1, color: "FF0000" },
+      { itemid: 2, color: "00FF00" }
+    ];
+    const pngBuffer = Buffer.from([
+      0x89,
+      0x50,
+      0x4e,
+      0x47,
+      0x0d,
+      0x0a,
+      0x1a,
+      0x0a,
+      0x00,
+      0x00,
+      0x00,
+      0x0d
+    ]);
+    const pngBase64 = pngBuffer.toString("base64");
+
+    const buildJsonResponse = result => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ result })
+    });
+    const buildImageResponse = () => ({
+      ok: true,
+      status: 200,
+      headers: {
+        get: name => {
+          if (name && name.toLowerCase() === "content-type") {
+            return "image/png";
+          }
+          return null;
+        }
+      },
+      arrayBuffer: async () => pngBuffer
+    });
+
+    helper.sendSocketNotification = jest.fn();
+
+    fetch.mockImplementation((url, options = {}) => {
+      if (url.includes("api_jsonrpc.php")) {
+        const payload = JSON.parse(options.body);
+        if (payload.method === "user.login") {
+          return buildJsonResponse("authToken123");
+        }
+        if (payload.method === "graph.get") {
+          return buildJsonResponse([{ graphid: config.graphId, name: "CPU Usage" }]);
+        }
+        if (payload.method === "graphitem.get") {
+          return buildJsonResponse(graphItems);
+        }
+        throw new Error(`Unexpected API method ${payload.method}`);
+      }
+      if (url.includes("chart2.php")) {
+        return buildImageResponse();
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    await helper.handleGraphRequest(config);
+
+    expect(helper.graphMetadataCache[cacheKey]).toEqual({
+      title: "CPU Usage",
+      items: graphItems
+    });
+    expect(helper.sendSocketNotification).toHaveBeenCalledWith(
+      "GRAPH_RESULT",
+      expect.objectContaining({
+        title: "CPU Usage",
+        graphId: config.graphId,
+        items: graphItems,
+        image: pngBase64
+      })
+    );
+  });
+
   test("handleGraphRequest clears cached auth tokens and reports readable errors", async () => {
     helper.sendSocketNotification = jest.fn();
     helper.authTokens[authKey] = "cached";
@@ -125,5 +205,36 @@ describe("node_helper graph fetching", () => {
         authResetKey: authKey
       });
     });
+  });
+
+  test("callZabbixApi uses apiToken headers and skips user.login", async () => {
+    const tokenConfig = {
+      ...config,
+      apiToken: " test-token-value "
+    };
+    const resultPayload = [{ graphid: config.graphId }];
+
+    helper.sendSocketNotification = jest.fn();
+    fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ result: resultPayload })
+    });
+
+    const response = await helper.callZabbixApi(
+      "graph.get",
+      { graphids: [config.graphId], output: "extend" },
+      tokenConfig
+    );
+
+    expect(response).toEqual(resultPayload);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [, options] = fetch.mock.calls[0];
+    expect(options.headers.Authorization).toBe("Bearer test-token-value");
+    expect(options.headers["X-Auth-Token"]).toBe("test-token-value");
+
+    const body = JSON.parse(options.body);
+    expect(body.auth).toBeNull();
+    expect(body.method).toBe("graph.get");
   });
 });
