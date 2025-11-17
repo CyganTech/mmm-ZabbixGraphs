@@ -1,0 +1,16 @@
+{
+  "name": "mmm-zabbixgraphs",
+  "version": "1.0.0",
+  "description": "MagicMirror module that renders Zabbix graphs",
+  "main": "MMM-ZabbixGraphs.js",
+  "keywords": [
+    "magicmirror",
+    "zabbix",
+    "graphs"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "node-fetch": "^2.6.12"
+  }
+}
