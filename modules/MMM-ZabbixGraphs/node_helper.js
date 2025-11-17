@@ -52,12 +52,17 @@ module.exports = NodeHelper.create({
         image
       });
     } catch (error) {
-      console.error("MMM-ZabbixGraphs error", error);
+      console.error(
+        `[MMM-ZabbixGraphs] Failed to load graph ${config.graphId || "unknown"}: ${error.message}`
+      );
+      if (error.logDetails) {
+        console.error("[MMM-ZabbixGraphs] Details:", error.logDetails);
+      }
       if (error.authResetKey) {
         delete this.authTokens[error.authResetKey];
       }
       this.sendSocketNotification("GRAPH_RESULT", {
-        error: error.message || "Unknown error"
+        error: error.userMessage || error.message || "Unknown error"
       });
     }
   },
@@ -168,7 +173,47 @@ module.exports = NodeHelper.create({
     }
 
     const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer).toString("base64");
+    const buffer = Buffer.from(arrayBuffer);
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    const pngSignature = buffer.slice(0, 4);
+    const looksLikePng =
+      pngSignature.length === 4 &&
+      pngSignature[0] === 0x89 &&
+      pngSignature[1] === 0x50 &&
+      pngSignature[2] === 0x4e &&
+      pngSignature[3] === 0x47;
+
+    if (!contentType.includes("image/png") || !looksLikePng) {
+      const snippet = buffer
+        .slice(0, 120)
+        .toString("utf8")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      console.warn(
+        `[MMM-ZabbixGraphs] Expected a PNG from chart2.php but received ${
+          contentType || "an unknown content-type"
+        } (status ${response.status}).`
+      );
+      if (snippet) {
+        console.warn(`[MMM-ZabbixGraphs] Response preview: ${snippet}`);
+      }
+
+      const err = new Error("Zabbix returned an unexpected response while fetching the graph image");
+      err.userMessage =
+        "Graph image unavailable. Please re-authenticate with Zabbix to refresh your session.";
+      err.logDetails = {
+        status: response.status,
+        contentType: contentType || "unknown",
+        responsePreview: snippet
+      };
+      if (!this.usesApiToken(config)) {
+        err.authResetKey = this.getAuthKey(config);
+      }
+      throw err;
+    }
+
+    return buffer.toString("base64");
   },
 
   getBaseUrl(zabbixUrl) {

@@ -10,7 +10,13 @@
   ],
   "author": "",
   "license": "MIT",
+  "scripts": {
+    "test": "jest"
+  },
   "dependencies": {
     "node-fetch": "^2.6.12"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
   }
 }
