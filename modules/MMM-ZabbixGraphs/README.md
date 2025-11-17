@@ -31,7 +31,11 @@ Add the module to your `config.js`:
     graphId: 12345,
     width: 800,
     height: 300,
-    refreshMinutes: 5
+    refreshMinutes: 5,
+    period: 24 * 60 * 60,
+    // Optional overrides for Zabbix's From/To controls
+    // stime: "now-24h",
+    // timeShift: "0"
   }
 }
 ```
@@ -48,6 +52,24 @@ Add the module to your `config.js`:
 | `width` | `number` | `600` | Width in pixels used when requesting the PNG via `chart2.php`. |
 | `height` | `number` | `300` | Height in pixels used for the PNG request. |
 | `refreshMinutes` | `number` | `5` | Interval, in minutes, between refreshes. Each refresh reuses the cached auth token and requests a new PNG. Use `refreshInterval` (milliseconds) for backwards compatibility. |
+| `period` | `number` | `86400` (24h) | Length of the requested window in seconds. This maps directly to Zabbix's **Period** slider / **To** field so the PNG shows the same span you'd see when choosing a preset like *Last 1 day* in the UI. |
+| `stime` | `string\|null` | `null` | Optional override for Zabbix's **From** value (e.g., `"now-7d"` or a Unix timestamp). Leave `null` to let Zabbix anchor the graph relative to the current time. |
+| `timeShift` | `string\|null` | `null` | Additional shift applied by `chart2.php` (mirrors the *time shift* field in the UI). Useful for comparing the same window against a different time frame. |
+
+### Matching Zabbix 7.2 "From/To"
+
+The MagicMirror configuration maps 1:1 to the controls shown on a Zabbix 7.2 graph page:
+
+- `period` controls the overall width of the window—the same value Zabbix stores when you drag the **Period** slider or pick a preset (e.g., *Last 1 day*).
+- `stime` is identical to the **From** input. You can provide a relative value such as `"now-24h"` or the exact timestamp that appears in the UI when you copy the graph URL.
+- `timeShift` mirrors the optional *time shift* field. Leaving it `null` yields the default "current" graph, while values like `"1d"` instruct Zabbix to shift the window back by that amount.
+
+Because each module instance keeps its own configuration you can run multiple `MMM-ZabbixGraphs` entries side-by-side—one showing the default 24-hour window, another locked to the past 7 days, and yet another shifted for week-over-week comparisons.
+
+#### Example presets
+
+- **Last 1 day (24h)** — The default `period: 24 * 60 * 60` matches the *Last 1 day* preset from the Zabbix 7.2 toolbar. No `stime` override is required because Zabbix automatically centers the window around "now".
+- **Last 7 days (7d)** — Add `period: 7 * 24 * 60 * 60` to the module instance (again leaving `stime` empty) to mimic the *Last 7 days* preset from the UI.
 
 ### Finding the `graphId`
 

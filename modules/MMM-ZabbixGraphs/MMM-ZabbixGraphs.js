@@ -9,7 +9,10 @@ Module.register("MMM-ZabbixGraphs", {
     graphId: null,
     width: 600,
     height: 300,
-    refreshMinutes: 5
+    refreshMinutes: 5,
+    period: 24 * 60 * 60,
+    stime: null,
+    timeShift: null
   },
 
   start() {
