@@ -5,6 +5,7 @@ Module.register("MMM-ZabbixGraphs", {
     zabbixUrl: "http://localhost/zabbix",
     username: "",
     password: "",
+    apiToken: "",
     graphId: null,
     width: 600,
     height: 300,
