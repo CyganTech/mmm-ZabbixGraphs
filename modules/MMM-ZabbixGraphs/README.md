@@ -28,7 +28,7 @@ Add the module to your `config.js`:
     graphId: 12345,
     width: 800,
     height: 300,
-    refreshInterval: 5 * 60 * 1000
+    refreshMinutes: 5
   }
 }
 ```
@@ -43,7 +43,20 @@ Add the module to your `config.js`:
 | `graphId` | `number` | `null` | ID of the Zabbix graph to display (find it in the URL while viewing the graph inside Zabbix). |
 | `width` | `number` | `600` | Width in pixels used when requesting the PNG via `chart2.php`. |
 | `height` | `number` | `300` | Height in pixels used for the PNG request. |
-| `refreshInterval` | `number` | `300000` | Interval (ms) between refreshes. Each refresh reuses the cached auth token and requests a new PNG. |
+| `refreshMinutes` | `number` | `5` | Interval, in minutes, between refreshes. Each refresh reuses the cached auth token and requests a new PNG. Use `refreshInterval` (milliseconds) for backwards compatibility. |
+
+### Finding the `graphId`
+
+1. Open the graph in the Zabbix web UI.
+2. Look at the browser address bar; the `graphid=<ID>` query parameter is the numeric value to place in the MagicMirror config.
+3. Alternatively, open **Administration → API → Explore**, run `graph.get`, and copy the `graphid` from the response.
+
+Once you have the numeric ID, copy it into the module configuration shown above. If you need to render multiple graphs on your mirror you can either:
+
+- Add multiple `MMM-ZabbixGraphs` entries to `config.js`, each with its own `graphId`, dimensions, and `refreshMinutes`.
+- Or duplicate an existing module block and adjust only the fields that change per graph (e.g., `graphId`, `width`, `height`).
+
+Each module instance sends the configured `graphId`, `width`, `height`, and refresh interval to the helper which then calls `graph.get` and downloads the PNG matching that specific configuration.
 
 ### Authentication & Error Handling
 
