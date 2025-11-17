@@ -16,23 +16,28 @@ module.exports = NodeHelper.create({
   async handleGraphRequest(config) {
     let cacheKey = null;
     try {
-      if (!config.graphId) {
-        throw new Error("Missing graphId in configuration");
+      const auth = await this.authenticate(config);
+      const { graphId, widgetTitle } = await this.resolveGraphReference(config, auth);
+      const effectiveConfig = { ...config, graphId };
+      cacheKey = this.getGraphCacheKey(effectiveConfig);
+      let metadata = cacheKey ? this.graphMetadataCache[cacheKey] : null;
+      if (!metadata) {
+        metadata = await this.fetchGraphMetadata(effectiveConfig, auth);
       }
 
-      cacheKey = this.getGraphCacheKey(config);
-      const auth = await this.authenticate(config);
-      let metadata = this.graphMetadataCache[cacheKey];
-      if (!metadata) {
-        metadata = await this.fetchGraphMetadata(config, auth);
+      if (widgetTitle && widgetTitle !== metadata.title) {
+        metadata = { ...metadata, title: widgetTitle };
+      }
+
+      if (cacheKey) {
         this.graphMetadataCache[cacheKey] = metadata;
       }
 
-      const image = await this.fetchGraphImage(config, auth);
+      const image = await this.fetchGraphImage(effectiveConfig, auth);
 
       this.sendSocketNotification("GRAPH_RESULT", {
         title: metadata.title,
-        graphId: config.graphId,
+        graphId,
         items: metadata.items,
         image
       });
@@ -287,6 +292,166 @@ module.exports = NodeHelper.create({
     }
     const base = this.getBaseUrl(config.zabbixUrl || "");
     return `${base}|${config.graphId}`;
+  },
+
+  async resolveGraphReference(config = {}, auth) {
+    const normalizedGraphId = this.normalizeNumericId(config.graphId);
+    if (normalizedGraphId !== null) {
+      return { graphId: normalizedGraphId };
+    }
+
+    if (this.normalizeNumericId(config.dashboardId) !== null) {
+      return this.fetchDashboardGraph(config, auth);
+    }
+
+    const err = new Error("Missing graphId or dashboardId/widgetId in configuration");
+    err.userMessage = err.message;
+    throw err;
+  },
+
+  async fetchDashboardGraph(config, auth) {
+    const dashboardId = this.normalizeNumericId(config.dashboardId);
+    if (dashboardId === null) {
+      const err = new Error("Missing dashboardId in configuration");
+      err.userMessage = err.message;
+      throw err;
+    }
+
+    const dashboards = await this.callZabbixApi(
+      "dashboard.get",
+      {
+        dashboardids: [dashboardId],
+        selectPages: ["dashboard_pageid", "widgets"]
+      },
+      config,
+      auth
+    );
+
+    if (!Array.isArray(dashboards) || dashboards.length === 0) {
+      const err = new Error(`Dashboard ${dashboardId} was not found or you lack permission to view it`);
+      err.userMessage = err.message;
+      throw err;
+    }
+
+    const dashboard = dashboards[0];
+    const widgets = this.collectDashboardWidgets(dashboard);
+    if (widgets.length === 0) {
+      const err = new Error(`Dashboard ${dashboardId} does not contain any widgets you can access`);
+      err.userMessage = err.message;
+      throw err;
+    }
+
+    const widget = this.pickDashboardWidget(widgets, config);
+    if (!widget) {
+      const err = new Error(`No matching graph widget was found on dashboard ${dashboardId}`);
+      err.userMessage = err.message;
+      throw err;
+    }
+
+    const graphId = this.extractGraphIdFromWidget(widget);
+    if (graphId === null) {
+      const err = new Error("The selected dashboard widget does not reference a graph");
+      err.userMessage = err.message;
+      throw err;
+    }
+
+    const widgetTitle = typeof widget.name === "string" && widget.name.trim().length > 0 ? widget.name.trim() : null;
+    return { graphId, widgetTitle };
+  },
+
+  collectDashboardWidgets(dashboard = {}) {
+    const widgets = [];
+    const pages = Array.isArray(dashboard.pages) ? dashboard.pages : [];
+    pages.forEach(page => {
+      if (Array.isArray(page.widgets)) {
+        page.widgets.forEach(widget => widgets.push(widget));
+      }
+    });
+    return widgets;
+  },
+
+  pickDashboardWidget(widgets = [], config = {}) {
+    if (!Array.isArray(widgets) || widgets.length === 0) {
+      return null;
+    }
+
+    const widgetId = config.widgetId !== undefined && config.widgetId !== null ? String(config.widgetId) : null;
+    if (widgetId) {
+      const exactMatch = widgets.find(widget => String(widget.widgetid) === widgetId);
+      if (exactMatch) {
+        return exactMatch;
+      }
+    }
+
+    const widgetName = typeof config.widgetName === "string" ? config.widgetName.trim() : "";
+    if (widgetName) {
+      const nameMatch = widgets.find(widget => typeof widget.name === "string" && widget.name.trim() === widgetName);
+      if (nameMatch) {
+        return nameMatch;
+      }
+    }
+
+    return widgets.find(widget => this.isGraphWidget(widget)) || null;
+  },
+
+  isGraphWidget(widget) {
+    if (!widget || typeof widget.type !== "string") {
+      return false;
+    }
+    const type = widget.type.toLowerCase();
+    return type === "graph" || type === "graphprototype" || type === "svggraph";
+  },
+
+  extractGraphIdFromWidget(widget = {}) {
+    if (!widget || !Array.isArray(widget.fields)) {
+      return null;
+    }
+
+    const graphField = widget.fields.find(field => this.isGraphField(field));
+    if (!graphField) {
+      return null;
+    }
+
+    const value = this.getWidgetFieldValue(graphField);
+    return this.normalizeNumericId(value);
+  },
+
+  isGraphField(field) {
+    if (!field || typeof field.name !== "string") {
+      return false;
+    }
+    const name = field.name.trim();
+    return name === "graphid" || name.startsWith("graphid.");
+  },
+
+  getWidgetFieldValue(field = {}) {
+    if (field.value !== undefined && field.value !== null) {
+      return field.value;
+    }
+    if (field.value_int !== undefined && field.value_int !== null) {
+      return field.value_int;
+    }
+    if (field.value_str !== undefined && field.value_str !== null) {
+      return field.value_str;
+    }
+    return null;
+  },
+
+  normalizeNumericId(value) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed.length === 0) {
+        return null;
+      }
+      const parsed = Number(trimmed);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    return null;
   },
 
   usesApiToken(config) {

@@ -39,7 +39,12 @@ Add the module to your `config.js`:
     password: "superSecret",
     // ...or drop the credentials above and provide an API token (Zabbix >= 7.2)
     // apiToken: "eyJra...",
+    // Option 1: point directly at a graph ID.
     graphId: 12345,
+    // Option 2: resolve the graph from a dashboard widget (leave graphId unset).
+    // dashboardId: 42,
+    // widgetId: 17,
+    // widgetName: "Traffic overview",
     width: 800,
     height: 300,
     refreshMinutes: 5,
@@ -61,6 +66,9 @@ Add the module to your `config.js`:
 | `password` | `string` | `""` | Password for the user above. Optional when `apiToken` is set. |
 | `apiToken` | `string` | `""` | Bearer token generated via **Administration → API → Tokens** (Zabbix 7.2+). When present the helper skips `user.login` and authenticates every request (including PNG downloads) via `Authorization: Bearer`. |
 | `graphId` | `number` | `null` | ID of the Zabbix graph to display (find it in the URL while viewing the graph inside Zabbix). |
+| `dashboardId` | `number` | `null` | Numeric ID of the dashboard that contains the widget you want to mirror. Required when `graphId` is omitted. |
+| `widgetId` | `number\|string` | `null` | Optional widget identifier inside the dashboard. When present, the helper resolves that widget and reuses its configured graph. |
+| `widgetName` | `string` | `null` | Optional widget title filter used when `widgetId` is not set. The first graph widget whose title matches this string is used. |
 | `width` | `number` | `600` | Width in pixels used when requesting the PNG via `chart2.php`. |
 | `height` | `number` | `300` | Height in pixels used for the PNG request. |
 | `refreshMinutes` | `number` | `5` | Interval, in minutes, between refreshes. Each refresh reuses the cached auth token and requests a new PNG. Use `refreshInterval` (milliseconds) for backwards compatibility. |
@@ -96,6 +104,12 @@ Once you have the numeric ID, copy it into the module configuration shown above.
 - Or duplicate an existing module block and adjust only the fields that change per graph (e.g., `graphId`, `width`, `height`).
 
 Each module instance sends the configured `graphId`, `width`, `height`, and refresh interval to the helper which then calls `graph.get` and downloads the PNG matching that specific configuration.
+
+### Using dashboard widgets instead of raw IDs
+
+If you would rather reference an existing dashboard widget, set `dashboardId` and leave `graphId` empty. The helper queries `dashboard.get`, finds the requested widget, and reuses the graph configured inside it. Provide `widgetId` (from the dashboard editor URL) for an exact match or `widgetName` to select the first graph widget with a matching title. When neither is specified, the helper simply picks the first graph widget on the dashboard.
+
+You can find the dashboard ID by opening the dashboard in the Zabbix UI and copying the `dashboardid=<ID>` query parameter from the address bar (`zabbix.php?action=dashboard.view&dashboardid=123`). Widget IDs are shown while editing a dashboard (`widgetid=<ID>` in the URL). Once set up, the module will always display the same graph you configured visually on the dashboard without having to manage host-specific item IDs.
 
 ### Authentication & Error Handling
 

@@ -122,6 +122,83 @@ describe("node_helper graph fetching", () => {
     );
   });
 
+  test("handleGraphRequest resolves graphId from a dashboard widget when graphId is omitted", async () => {
+    const dashboardConfig = {
+      ...config,
+      graphId: null,
+      dashboardId: 555,
+      widgetId: 99
+    };
+    const resolvedGraphId = 654321;
+    const widget = {
+      widgetid: String(dashboardConfig.widgetId),
+      type: "graph",
+      name: "Dashboard CPU",
+      fields: [{ name: "graphid.0", value: String(resolvedGraphId) }]
+    };
+    const graphItems = [{ itemid: 10, color: "AA0000" }];
+    const pngBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const buildJsonResponse = result => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ result })
+    });
+    const buildImageResponse = () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => "image/png" },
+      arrayBuffer: async () => pngBuffer
+    });
+
+    helper.sendSocketNotification = jest.fn();
+
+    fetch.mockImplementation((url, options = {}) => {
+      if (url.includes("api_jsonrpc.php")) {
+        const payload = JSON.parse(options.body);
+        switch (payload.method) {
+          case "user.login":
+            return buildJsonResponse("authTokenXYZ");
+          case "dashboard.get":
+            return buildJsonResponse([
+              {
+                dashboardid: dashboardConfig.dashboardId,
+                pages: [
+                  {
+                    dashboard_pageid: 1,
+                    widgets: [widget]
+                  }
+                ]
+              }
+            ]);
+          case "graph.get":
+            expect(payload.params.graphids).toEqual([resolvedGraphId]);
+            return buildJsonResponse([{ graphid: resolvedGraphId, name: "CPU Usage" }]);
+          case "graphitem.get":
+            return buildJsonResponse(graphItems);
+          default:
+            throw new Error(`Unexpected API method ${payload.method}`);
+        }
+      }
+      if (url.includes("chart2.php")) {
+        expect(url).toContain(`graphid=${resolvedGraphId}`);
+        return buildImageResponse();
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    await helper.handleGraphRequest(dashboardConfig);
+
+    expect(helper.sendSocketNotification).toHaveBeenCalledWith(
+      "GRAPH_RESULT",
+      expect.objectContaining({
+        title: "Dashboard CPU",
+        graphId: resolvedGraphId,
+        items: graphItems,
+        image: pngBuffer.toString("base64")
+      })
+    );
+  });
+
   test("handleGraphRequest clears cached auth tokens and reports readable errors", async () => {
     helper.sendSocketNotification = jest.fn();
     helper.authTokens[authKey] = "cached";
@@ -236,5 +313,22 @@ describe("node_helper graph fetching", () => {
     const body = JSON.parse(options.body);
     expect(body.auth).toBeNull();
     expect(body.method).toBe("graph.get");
+  });
+
+  test("resolveGraphReference rejects when no graph or dashboard information is provided", async () => {
+    await expect(helper.resolveGraphReference({}, null)).rejects.toMatchObject({
+      message: expect.stringContaining("Missing graphId")
+    });
+  });
+
+  test("extractGraphIdFromWidget understands graphid.* fields", () => {
+    const widget = {
+      fields: [
+        { name: "ignored", value: 1 },
+        { name: "graphid.0", value: "987" }
+      ]
+    };
+
+    expect(helper.extractGraphIdFromWidget(widget)).toBe(987);
   });
 });
