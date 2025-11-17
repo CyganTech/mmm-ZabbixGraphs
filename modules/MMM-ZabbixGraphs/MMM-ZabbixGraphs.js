@@ -8,7 +8,7 @@ Module.register("MMM-ZabbixGraphs", {
     graphId: null,
     width: 600,
     height: 300,
-    refreshInterval: 5 * 60 * 1000
+    refreshMinutes: 5
   },
 
   start() {
@@ -22,8 +22,17 @@ Module.register("MMM-ZabbixGraphs", {
     return ["MMM-ZabbixGraphs.css"];
   },
 
+  getRefreshIntervalMs() {
+    if (typeof this.config.refreshInterval === "number") {
+      return Math.max(1000, this.config.refreshInterval);
+    }
+
+    const minutes = typeof this.config.refreshMinutes === "number" ? this.config.refreshMinutes : 5;
+    return Math.max(1, minutes) * 60 * 1000;
+  },
+
   scheduleUpdate(delay) {
-    const nextLoad = typeof delay === "number" ? delay : this.config.refreshInterval;
+    const nextLoad = typeof delay === "number" ? delay : this.getRefreshIntervalMs();
     clearTimeout(this.updateTimer);
     this.updateTimer = setTimeout(() => {
       this.sendSocketNotification("GET_GRAPH", this.config);
@@ -41,7 +50,7 @@ Module.register("MMM-ZabbixGraphs", {
       }
       this.loaded = true;
       this.updateDom();
-      this.scheduleUpdate(this.config.refreshInterval);
+      this.scheduleUpdate(this.getRefreshIntervalMs());
     }
   },
 
