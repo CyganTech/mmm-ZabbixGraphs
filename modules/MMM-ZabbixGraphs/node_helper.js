@@ -4,6 +4,7 @@ const fetch = require("node-fetch");
 module.exports = NodeHelper.create({
   start() {
     this.authTokens = {};
+    this.graphMetadataCache = {};
   },
 
   socketNotificationReceived(notification, payload) {
@@ -13,42 +14,26 @@ module.exports = NodeHelper.create({
   },
 
   async handleGraphRequest(config) {
+    let cacheKey = null;
     try {
       if (!config.graphId) {
         throw new Error("Missing graphId in configuration");
       }
 
+      cacheKey = this.getGraphCacheKey(config);
       const auth = await this.authenticate(config);
-      const graph = await this.callZabbixApi(
-        "graph.get",
-        {
-          graphids: [config.graphId],
-          output: "extend"
-        },
-        config,
-        auth
-      );
-
-      if (!graph || graph.length === 0) {
-        throw new Error(`Graph ${config.graphId} was not found`);
+      let metadata = this.graphMetadataCache[cacheKey];
+      if (!metadata) {
+        metadata = await this.fetchGraphMetadata(config, auth);
+        this.graphMetadataCache[cacheKey] = metadata;
       }
-
-      const items = await this.callZabbixApi(
-        "graphitem.get",
-        {
-          graphids: [config.graphId],
-          output: "extend"
-        },
-        config,
-        auth
-      );
 
       const image = await this.fetchGraphImage(config, auth);
 
       this.sendSocketNotification("GRAPH_RESULT", {
-        title: graph[0].name,
+        title: metadata.title,
         graphId: config.graphId,
-        items,
+        items: metadata.items,
         image
       });
     } catch (error) {
@@ -61,10 +46,46 @@ module.exports = NodeHelper.create({
       if (error.authResetKey) {
         delete this.authTokens[error.authResetKey];
       }
+      if (cacheKey && (error.authResetKey || error.invalidateGraphCache)) {
+        delete this.graphMetadataCache[cacheKey];
+      }
       this.sendSocketNotification("GRAPH_RESULT", {
         error: error.userMessage || error.message || "Unknown error"
       });
     }
+  },
+
+  async fetchGraphMetadata(config, auth) {
+    const graph = await this.callZabbixApi(
+      "graph.get",
+      {
+        graphids: [config.graphId],
+        output: "extend"
+      },
+      config,
+      auth
+    );
+
+    if (!graph || graph.length === 0) {
+      const err = new Error(`Graph ${config.graphId} was not found`);
+      err.invalidateGraphCache = true;
+      throw err;
+    }
+
+    const items = await this.callZabbixApi(
+      "graphitem.get",
+      {
+        graphids: [config.graphId],
+        output: "extend"
+      },
+      config,
+      auth
+    );
+
+    return {
+      title: graph[0].name,
+      items
+    };
   },
 
   async authenticate(config) {
@@ -236,6 +257,14 @@ module.exports = NodeHelper.create({
     const base = this.getBaseUrl(zabbixUrl);
     const api = new URL("api_jsonrpc.php", base);
     return api.toString();
+  },
+
+  getGraphCacheKey(config) {
+    if (!config || !config.graphId) {
+      return null;
+    }
+    const base = this.getBaseUrl(config.zabbixUrl || "");
+    return `${base}|${config.graphId}`;
   },
 
   usesApiToken(config) {
