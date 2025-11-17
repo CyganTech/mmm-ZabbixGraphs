@@ -32,6 +32,7 @@ Add the module to your `config.js`:
     width: 800,
     height: 300,
     refreshMinutes: 5,
+    requestTimeoutMs: 10000,
     period: 24 * 60 * 60,
     // Optional overrides for Zabbix's From/To controls
     // stime: "now-24h",
@@ -52,6 +53,7 @@ Add the module to your `config.js`:
 | `width` | `number` | `600` | Width in pixels used when requesting the PNG via `chart2.php`. |
 | `height` | `number` | `300` | Height in pixels used for the PNG request. |
 | `refreshMinutes` | `number` | `5` | Interval, in minutes, between refreshes. Each refresh reuses the cached auth token and requests a new PNG. Use `refreshInterval` (milliseconds) for backwards compatibility. |
+| `requestTimeoutMs` | `number` | `10000` | Milliseconds before JSON-RPC and PNG requests are aborted. When exceeded the helper surfaces a readable error, clears the cached session token, and the module retries on the next scheduled refresh. |
 | `period` | `number` | `86400` (24h) | Length of the requested window in seconds. This maps directly to Zabbix's **Period** slider / **To** field so the PNG shows the same span you'd see when choosing a preset like *Last 1 day* in the UI. |
 | `stime` | `string\|null` | `null` | Optional override for Zabbix's **From** value (e.g., `"now-7d"` or a Unix timestamp). Leave `null` to let Zabbix anchor the graph relative to the current time. |
 | `timeShift` | `string\|null` | `null` | Additional shift applied by `chart2.php` (mirrors the *time shift* field in the UI). Useful for comparing the same window against a different time frame. |
@@ -89,6 +91,7 @@ Each module instance sends the configured `graphId`, `width`, `height`, and refr
 - On Zabbix 7.2+ you can place a long-lived API token in `config.apiToken`. The helper sends it via both `Authorization: Bearer <token>` and `X-Auth-Token` headers for every JSON-RPC call as well as the `chart2.php` PNG download, so a web session is never created or cached.
 - Without `apiToken` the helper falls back to `user.login` using the configured `username`/`password`. The returned session token is cached per `zabbixUrl`/`username` and cleared automatically when Zabbix asks for a new login.
 - API responses are validated for HTTP and JSON-RPC errors. Any issue is sent back to the front-end where it is rendered as an error message instead of an image.
+- Every request (JSON-RPC and PNG downloads) inherits the configurable `requestTimeoutMs`. When Zabbix fails to respond in time the helper aborts both calls, clears any cached session token, and surfaces a friendly error so the UI can retry on the next refresh.
 - Image downloads happen through the Zabbix frontend (`chart2.php`). The helper either sets the `auth=<session>` query parameter (password flow) or reuses the bearer headers described above (token flow).
 
 ### Creating an API Token (Zabbix 7.2+)
