@@ -144,3 +144,18 @@ Older Zabbix versions (≤ 7.0) do not expose the API token UI. In that case kee
 4. The PNG is downloaded via `chart2.php` and base64-encoded before being sent back to the browser.
 
 For even more detail—including tests and development scripts—see the [`modules/MMM-ZabbixGraphs` README](modules/MMM-ZabbixGraphs/README.md).
+
+## Development & Testing
+
+You can verify the helper and front-end logic without launching a full MagicMirror² instance. The module ships with Jest tests
+that exercise the authentication flow, graph metadata caching, dashboard widget resolution, and the PNG download safeguards.
+
+```bash
+cd modules/MMM-ZabbixGraphs
+npm install
+npm test
+```
+
+Running the suite prints the mocked Zabbix interactions and proves the helper can recover from expired sessions or widget
+misconfigurations. When you are ready to validate the visual output, start MagicMirror in dev mode (`npm start dev` inside your
+MagicMirror checkout) and watch the console for the same log messages described in the sections above.
