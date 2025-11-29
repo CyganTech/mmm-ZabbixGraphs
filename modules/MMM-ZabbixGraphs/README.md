@@ -23,10 +23,10 @@ Add the module to your `config.js`:
   position: "top_left",
   config: {
     zabbixUrl: "https://zabbix.example.com/zabbix",
-    // Either keep username/password for legacy releases ...
+    // Either keep username/password for deployments that prefer session authentication ...
     username: "api-user",
     password: "superSecret",
-    // ...or drop the credentials above and provide an API token (Zabbix >= 7.2)
+    // ...or drop the credentials above and provide an API token (validated on Zabbix 7.2)
     // apiToken: "eyJra...",
     // Option 1: point directly at a graph ID.
     graphId: 12345,
@@ -53,7 +53,7 @@ Add the module to your `config.js`:
 | `zabbixUrl` | `string` | `http://localhost/zabbix` | Base URL of your Zabbix frontend. The helper automatically appends `api_jsonrpc.php` for API calls and `chart2.php` for graph downloads. |
 | `username` | `string` | `""` | Zabbix username that is allowed to access the graph. Optional when `apiToken` is set. |
 | `password` | `string` | `""` | Password for the user above. Optional when `apiToken` is set. |
-| `apiToken` | `string` | `""` | Bearer token generated via **Administration → API → Tokens** (Zabbix 7.2+). When present the helper skips `user.login` and authenticates every request (including PNG downloads) via `Authorization: Bearer`. |
+| `apiToken` | `string` | `""` | Bearer token generated via **Administration → API → Tokens** (supported in prior Zabbix releases and validated with 7.2). When present the helper skips `user.login` and authenticates every request (including PNG downloads) via `Authorization: Bearer`. |
 | `graphId` | `number` | `null` | ID of the Zabbix graph to display (find it in the URL while viewing the graph inside Zabbix). |
 | `dashboardId` | `number` | `null` | Numeric ID of the dashboard that contains the widget you want to mirror. Required when `graphId` is omitted. |
 | `widgetId` | `number\|string` | `null` | Optional widget identifier inside the dashboard. When present, the helper resolves that widget and reuses its configured graph. |
@@ -102,23 +102,23 @@ You can find the dashboard ID by opening the dashboard in the Zabbix UI and copy
 
 ### Authentication & Error Handling
 
-- On Zabbix 7.2+ you can place a long-lived API token in `config.apiToken`. The helper sends it via both `Authorization: Bearer <token>` and `X-Auth-Token` headers for every JSON-RPC call as well as the `chart2.php` PNG download, so a web session is never created or cached.
+- With an API token (validated on Zabbix 7.2 and available in earlier releases) in `config.apiToken`, the helper sends it via both `Authorization: Bearer <token>` and `X-Auth-Token` headers for every JSON-RPC call as well as the `chart2.php` PNG download, so a web session is never created or cached.
 - Without `apiToken` the helper falls back to `user.login` using the configured `username`/`password`. The returned session token is cached per `zabbixUrl`/`username` and cleared automatically when Zabbix asks for a new login.
 - API responses are validated for HTTP and JSON-RPC errors. Any issue is sent back to the front-end where it is rendered as an error message instead of an image.
 - Every request (JSON-RPC and PNG downloads) inherits the configurable `requestTimeoutMs`. When Zabbix fails to respond in time the helper aborts both calls, clears any cached session token, and surfaces a friendly error so the UI can retry on the next refresh.
 - Image downloads happen through the Zabbix frontend (`chart2.php`). The helper either sets the `auth=<session>` query parameter (password flow) or reuses the bearer headers described above (token flow).
 
-### Creating an API Token (Zabbix 7.2+)
+### Creating an API Token
 
-1. Sign in to the Zabbix web UI as an administrator and open **Administration → API → Tokens**.
+1. Sign in to the Zabbix web UI as an administrator and open **Administration → API → Tokens** (location validated on Zabbix 7.2).
 2. Click **Create token**, pick the user the MagicMirror module should impersonate, and give the token a descriptive name.
 3. (Optional) Set an expiration date that matches your rotation policy. You can leave it empty for a non-expiring token.
 4. Click **Add** and copy the newly generated token string. This value is shown only once—store it safely.
 5. Place the copied string into `config.apiToken`. Leave `username`/`password` blank (or remove them) to ensure the helper always uses the bearer token.
 
-### Falling Back to Password Authentication
+### Switching Between Token and Password Authentication
 
-Older Zabbix versions (≤ 7.0) do not expose the API token UI. In that case keep using `username`/`password`. The helper still caches the session token and only sends the password to `user.login` when necessary. Once you upgrade to 7.2 you can switch to tokens without changing anything else in your module configuration.
+API tokens have been available since earlier Zabbix releases and are verified here against 7.2. If you prefer not to use a token (or are constrained by your deployment policy), keep `username`/`password` in the configuration. The helper caches the resulting session token and only sends the password to `user.login` when necessary. You can switch to `apiToken` later without changing any other fields.
 
 ### Debugging Tips
 
