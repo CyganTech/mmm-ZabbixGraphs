@@ -112,6 +112,48 @@ If you would rather reference an existing dashboard widget, set `dashboardId` an
 
 You can find the dashboard ID by opening the dashboard in the Zabbix UI and copying the `dashboardid=<ID>` query parameter from the address bar (`zabbix.php?action=dashboard.view&dashboardid=123`). Widget IDs are shown while editing a dashboard (`widgetid=<ID>` in the URL). Once set up, the module will always display the same graph you configured visually on the dashboard without having to manage host-specific item IDs.
 
+If you need to discover the widget without the API Explorer UI, call `dashboard.get` directly. The examples below rely on a token but work with a `user.login`-acquired session token as well.
+
+**Using an API token**
+
+```bash
+curl -X POST "https://zabbix.example.com/zabbix/api_jsonrpc.php" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${ZABBIX_TOKEN}" \
+  -d @- <<'EOF'
+{
+  "jsonrpc": "2.0",
+  "method": "dashboard.get",
+  "params": {
+    "dashboardids": [123],
+    "selectWidgets": ["widgetid", "name", "type", "fields"]
+  },
+  "id": 1
+}
+EOF
+```
+
+**Using a cached session token from `user.login`**
+
+```bash
+curl -X POST "https://zabbix.example.com/zabbix/api_jsonrpc.php" \
+  -H "Content-Type: application/json" \
+  -d @- <<'EOF'
+{
+  "jsonrpc": "2.0",
+  "method": "dashboard.get",
+  "params": {
+    "dashboardids": [123],
+    "selectWidgets": ["widgetid", "name", "type", "fields"]
+  },
+  "auth": "${ZABBIX_SESSION}",
+  "id": 1
+}
+EOF
+```
+
+In the response, the `widgets` array lists each widget. For graph widgets, the `fields` array contains entries such as `graphid`, `timeFrom`, `timeShift`, or a custom `period`. These values mirror what the dashboard stores and can be copied into your MagicMirror config (`dashboardId`, `widgetId`, or `widgetName`) to ensure the mirror matches the original graph and time window.
+
 ### Authentication & Error Handling
 
 - With an API token (validated on Zabbix 7.2 and available in earlier releases) in `config.apiToken`, the helper sends it via both `Authorization: Bearer <token>` and `X-Auth-Token` headers for every JSON-RPC call as well as the `chart2.php` PNG download, so a web session is never created or cached.
