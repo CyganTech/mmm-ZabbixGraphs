@@ -15,21 +15,24 @@ so the MagicMirror front-end can focus on simply displaying the latest graph.
 
 ## Installation
 
-1. Change into your MagicMirror `modules` directory and clone/copy this folder:
+1. Change into your MagicMirror `modules` directory and clone/copy this folder. The
+   actual MagicMirror module lives under the nested `modules/MMM-ZabbixGraphs`
+   directory in this repository, so make sure you `cd` into that subfolder before
+   installing dependencies:
    ```bash
    cd ~/MagicMirror/modules
    git clone https://github.com/CyganTech/mmm-ZabbixGraphs.git MMM-ZabbixGraphs
-   cd MMM-ZabbixGraphs
+   cd MMM-ZabbixGraphs/modules/MMM-ZabbixGraphs
    npm install
    ```
 2. Restart MagicMirror after editing your configuration.
 
 ### Update
 
-From your MagicMirror checkout, pull the latest changes and reinstall dependencies before restarting:
+From your MagicMirror checkout, pull the latest changes from the module directory and reinstall dependencies before restarting:
 
 ```bash
-cd ~/MagicMirror/modules/MMM-ZabbixGraphs
+cd ~/MagicMirror/modules/MMM-ZabbixGraphs/modules/MMM-ZabbixGraphs
 git pull # or: git pull origin <branch>
 npm install
 ```
