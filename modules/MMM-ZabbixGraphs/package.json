@@ -8,7 +8,14 @@
     "zabbix",
     "graphs"
   ],
-  "author": "",
+  "author": "CyganTech",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CyganTech/mmm-ZabbixGraphs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CyganTech/mmm-ZabbixGraphs/issues"
+  },
   "license": "MIT",
   "scripts": {
     "test": "jest"
