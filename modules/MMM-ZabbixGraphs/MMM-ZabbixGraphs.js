@@ -6,17 +6,13 @@ Module.register("MMM-ZabbixGraphs", {
     username: "",
     password: "",
     apiToken: "",
-    graphId: null,
     dashboardId: null,
     widgetId: null,
     widgetName: null,
     width: 600,
     height: 300,
     refreshMinutes: 5,
-    requestTimeoutMs: 10000,
-    period: 24 * 60 * 60,
-    stime: null,
-    timeShift: null
+    requestTimeoutMs: 10000
   },
 
   start() {
@@ -98,8 +94,10 @@ Module.register("MMM-ZabbixGraphs", {
       const img = document.createElement("img");
       img.classList.add("zabbix-graph-image");
       img.src = `data:image/png;base64,${this.graphData.image}`;
-      img.width = this.config.width;
-      img.height = this.config.height;
+      const width = this.graphData.width || this.config.width;
+      const height = this.graphData.height || this.config.height;
+      img.width = width;
+      img.height = height;
       wrapper.appendChild(img);
     }
 
