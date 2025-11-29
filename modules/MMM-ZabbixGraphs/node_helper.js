@@ -17,8 +17,9 @@ module.exports = NodeHelper.create({
     let cacheKey = null;
     try {
       const auth = await this.authenticate(config);
-      const { graphId, widgetTitle, widgetTimeConfig } = await this.resolveGraphReference(config, auth);
-      const effectiveConfig = { ...(widgetTimeConfig || {}), ...config, graphId };
+      const { graphId, widgetTitle, widgetTimeConfig, widgetDimensions } =
+        await this.resolveGraphReference(config, auth);
+      const effectiveConfig = { ...config, ...widgetTimeConfig, ...widgetDimensions, graphId };
       cacheKey = this.getGraphCacheKey(effectiveConfig);
       let metadata = cacheKey ? this.graphMetadataCache[cacheKey] : null;
       if (!metadata) {
@@ -38,6 +39,8 @@ module.exports = NodeHelper.create({
       this.sendSocketNotification("GRAPH_RESULT", {
         title: metadata.title,
         graphId,
+        width: effectiveConfig.width,
+        height: effectiveConfig.height,
         items: metadata.items,
         image
       });
@@ -295,16 +298,17 @@ module.exports = NodeHelper.create({
   },
 
   async resolveGraphReference(config = {}, auth) {
-    const normalizedGraphId = this.normalizeNumericId(config.graphId);
-    if (normalizedGraphId !== null) {
-      return { graphId: normalizedGraphId };
+    if (this.normalizeNumericId(config.graphId) !== null) {
+      const err = new Error("Use dashboard widgets instead of direct graph IDs");
+      err.userMessage = err.message;
+      throw err;
     }
 
     if (this.normalizeNumericId(config.dashboardId) !== null) {
       return this.fetchDashboardGraph(config, auth);
     }
 
-    const err = new Error("Missing graphId or dashboardId/widgetId in configuration");
+    const err = new Error("Missing dashboardId and widget selection in configuration");
     err.userMessage = err.message;
     throw err;
   },
@@ -357,7 +361,8 @@ module.exports = NodeHelper.create({
 
     const widgetTitle = typeof widget.name === "string" && widget.name.trim().length > 0 ? widget.name.trim() : null;
     const widgetTimeConfig = this.extractWidgetTimeConfig(widget);
-    return { graphId, widgetTitle, widgetTimeConfig };
+    const widgetDimensions = this.extractWidgetDimensions(widget, config);
+    return { graphId, widgetTitle, widgetTimeConfig, widgetDimensions };
   },
 
   collectDashboardWidgets(dashboard = {}) {
@@ -454,6 +459,18 @@ module.exports = NodeHelper.create({
     });
 
     return timeConfig;
+  },
+
+  extractWidgetDimensions(widget = {}, config = {}) {
+    const width = this.normalizeNumericId(widget.width);
+    const height = this.normalizeNumericId(widget.height);
+    const fallbackWidth = this.normalizeNumericId(config.width);
+    const fallbackHeight = this.normalizeNumericId(config.height);
+
+    return {
+      width: (width && width > 0 ? width : fallbackWidth) || 600,
+      height: (height && height > 0 ? height : fallbackHeight) || 300
+    };
   },
 
   isGraphField(field) {

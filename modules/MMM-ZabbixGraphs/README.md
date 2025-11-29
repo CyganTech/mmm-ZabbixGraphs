@@ -1,12 +1,10 @@
 # MMM-ZabbixGraphs
 
-`MMM-ZabbixGraphs` renders PNG graphs exported from Zabbix inside MagicMirror². The module authenticates against the Zabbix JSON-RPC API, retrieves metadata with `graph.get`/`graphitem.get`, downloads the rendered PNG from the web frontend and refreshes it periodically.
+`MMM-ZabbixGraphs` renders PNG graphs exported from Zabbix inside MagicMirror². The module authenticates against the Zabbix JSON-RPC API, resolves a dashboard widget that you maintain in the Zabbix UI, mirrors its stored settings (title, colors, time controls, etc.), downloads the rendered PNG from the web frontend, and refreshes it periodically.
 
 ## Installation
 
-1. Change into your MagicMirror `modules` directory and clone/copy this folder. The
-   actual MagicMirror module is inside this repository at `modules/MMM-ZabbixGraphs`,
-   so make sure you change into that subdirectory before installing dependencies:
+1. Change into your MagicMirror `modules` directory and clone/copy this folder. The actual MagicMirror module is inside this repository at `modules/MMM-ZabbixGraphs`, so make sure you change into that subdirectory before installing dependencies:
    ```bash
    cd ~/MagicMirror/modules
    git clone https://github.com/CyganTech/mmm-ZabbixGraphs.git MMM-ZabbixGraphs
@@ -40,20 +38,15 @@ Add the module to your `config.js`:
     password: "superSecret",
     // ...or drop the credentials above and provide an API token (validated on Zabbix 7.2)
     // apiToken: "eyJra...",
-    // Option 1: point directly at a graph ID.
-    graphId: 12345,
-    // Option 2: resolve the graph from a dashboard widget (leave graphId unset).
-    // dashboardId: 42,
-    // widgetId: 17,
+    // Mirror a dashboard widget configured inside the Zabbix UI.
+    dashboardId: 42,
+    // Pick a specific widget by ID (recommended) or by matching the title text.
+    widgetId: 17,
     // widgetName: "Traffic overview",
     width: 800,
     height: 300,
     refreshMinutes: 5,
-    requestTimeoutMs: 10000,
-    period: 24 * 60 * 60,
-    // Optional overrides for Zabbix's From/To controls
-    // stime: "now-24h",
-    // timeShift: "0"
+    requestTimeoutMs: 10000
   }
 }
 ```
@@ -63,70 +56,33 @@ Add the module to your `config.js`:
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `zabbixUrl` | `string` | `http://localhost/zabbix` | Base URL of your Zabbix frontend. The helper automatically appends `api_jsonrpc.php` for API calls and `chart2.php` for graph downloads. |
-| `username` | `string` | `""` | Zabbix username that is allowed to access the graph. Optional when `apiToken` is set. |
+| `username` | `string` | `""` | Zabbix username that is allowed to access the dashboard. Optional when `apiToken` is set. |
 | `password` | `string` | `""` | Password for the user above. Optional when `apiToken` is set. |
-| `apiToken` | `string` | `""` | Bearer token generated via **Administration → API → Tokens** (supported in prior Zabbix releases and validated with 7.2). When present the helper skips `user.login` and authenticates every request (including PNG downloads) via `Authorization: Bearer`. |
-| `graphId` | `number` | `null` | ID of the Zabbix graph to display (find it in the URL while viewing the graph inside Zabbix). |
-| `dashboardId` | `number` | `null` | Numeric ID of the dashboard that contains the widget you want to mirror. Required when `graphId` is omitted. |
+| `apiToken` | `string` | `""` | Bearer token generated via **Administration → API → Tokens** (validated with Zabbix 7.2). When present the helper skips `user.login` and authenticates every request (including PNG downloads) via `Authorization: Bearer`. |
+| `dashboardId` | `number` | `null` | Numeric ID of the dashboard that contains the widget you want to mirror. Required. |
 | `widgetId` | `number\|string` | `null` | Optional widget identifier inside the dashboard. When present, the helper resolves that widget and reuses its configured graph. |
 | `widgetName` | `string` | `null` | Optional widget title filter used when `widgetId` is not set. The first graph widget whose title matches this string is used. |
-| `width` | `number` | `600` | Width in pixels used when requesting the PNG via `chart2.php`. |
-| `height` | `number` | `300` | Height in pixels used for the PNG request. |
+| `width` | `number` | `600` | Width in pixels used when requesting the PNG via `chart2.php` (falls back to the widget dimensions when available). |
+| `height` | `number` | `300` | Height in pixels used for the PNG request (falls back to the widget dimensions when available). |
 | `refreshMinutes` | `number` | `5` | Interval, in minutes, between refreshes. Each refresh reuses the cached auth token and requests a new PNG. Use `refreshInterval` (milliseconds) for backwards compatibility. |
 | `requestTimeoutMs` | `number` | `10000` | Milliseconds before JSON-RPC and PNG requests are aborted. When exceeded the helper surfaces a readable error, clears the cached session token, and the module retries on the next scheduled refresh. |
-| `period` | `number` | `86400` (24h) | Length of the requested window in seconds. This maps directly to Zabbix's **Period** slider / **To** field so the PNG shows the same span you'd see when choosing a preset like *Last 1 day* in the UI. |
-| `stime` | `string\|null` | `null` | Optional override for Zabbix's **From** value (e.g., `"now-7d"` or a Unix timestamp). Leave `null` to let Zabbix anchor the graph relative to the current time. |
-| `timeShift` | `string\|null` | `null` | Additional shift applied by `chart2.php` (mirrors the *time shift* field in the UI). Useful for comparing the same window against a different time frame. |
 
-### Matching Zabbix 7.2 "From/To"
+### Mirroring dashboard widgets (no standalone `graphId` support)
 
-The MagicMirror configuration maps 1:1 to the controls shown on a Zabbix 7.2 graph page:
+The module now relies exclusively on dashboard widgets configured in the Zabbix UI. Instead of pointing at a raw `graphId`, you pick a dashboard and widget to mirror; the helper pulls the widget definition and renders the identical graph with the same colors, time window, and title.
 
-- `period` controls the overall width of the window—the same value Zabbix stores when you drag the **Period** slider or pick a preset (e.g., *Last 1 day*).
-- `stime` is identical to the **From** input. You can provide a relative value such as `"now-24h"` or the exact timestamp that appears in the UI when you copy the graph URL.
-- `timeShift` mirrors the optional *time shift* field. Leaving it `null` yields the default "current" graph, while values like `"1d"` instruct Zabbix to shift the window back by that amount.
-
-Because each module instance keeps its own configuration you can run multiple `MMM-ZabbixGraphs` entries side-by-side—one showing the default 24-hour window, another locked to the past 7 days, and yet another shifted for week-over-week comparisons.
-
-#### Example presets
-
-- **Last 1 day (24h)** — The default `period: 24 * 60 * 60` matches the *Last 1 day* preset from the Zabbix 7.2 toolbar. No `stime` override is required because Zabbix automatically centers the window around "now".
-- **Last 7 days (7d)** — Add `period: 7 * 24 * 60 * 60` to the module instance (again leaving `stime` empty) to mimic the *Last 7 days* preset from the UI.
-
-### Finding the `graphId`
-
-1. Open the graph in the Zabbix web UI.
-2. Look at the browser address bar; the `graphid=<ID>` query parameter is the numeric value to place in the MagicMirror config.
-3. Alternatively, open **Administration → API → Explore**, run `graph.get`, and copy the `graphid` from the response.
-
-Once you have the numeric ID, copy it into the module configuration shown above. If you need to render multiple graphs on your mirror you can either:
-
-- Add multiple `MMM-ZabbixGraphs` entries to `config.js`, each with its own `graphId`, dimensions, and `refreshMinutes`.
-- Or duplicate an existing module block and adjust only the fields that change per graph (e.g., `graphId`, `width`, `height`).
-
-Each module instance sends the configured `graphId`, `width`, `height`, and refresh interval to the helper which then calls `graph.get` and downloads the PNG matching that specific configuration.
-
-### Using dashboard widgets instead of raw IDs
-
-If you would rather reference an existing dashboard widget, set `dashboardId` and leave `graphId` empty. The helper queries `dashboard.get`, finds the requested widget, and reuses the graph configured inside it. Provide `widgetId` (from the dashboard editor URL) for an exact match or `widgetName` to select the first graph widget with a matching title. When neither is specified, the helper simply picks the first graph widget on the dashboard.
-
-You can find the dashboard ID by opening the dashboard in the Zabbix UI and copying the `dashboardid=<ID>` query parameter from the address bar (`zabbix.php?action=dashboard.view&dashboardid=123`). Widget IDs are shown while editing a dashboard (`widgetid=<ID>` in the URL). Once set up, the module will always display the same graph you configured visually on the dashboard without having to manage host-specific item IDs.
-
-If you need to discover the widget without the API Explorer UI, call `dashboard.get` directly. The examples below rely on a token but work with a `user.login`-acquired session token as well.
+You can find the dashboard ID by opening the dashboard in the Zabbix UI and copying the `dashboardid=<ID>` query parameter from the address bar (`zabbix.php?action=dashboard.view&dashboardid=123`). Widget IDs are shown while editing a dashboard (`widgetid=<ID>` in the URL). If you prefer not to copy URLs manually, the Zabbix API exposes the same details:
 
 **Using an API token**
 
 ```bash
-curl -X POST "https://zabbix.example.com/zabbix/api_jsonrpc.php" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ${ZABBIX_TOKEN}" \
-  -d @- <<'EOF'
+curl -X POST "https://zabbix.example.com/zabbix/api_jsonrpc.php"   -H "Content-Type: application/json"   -H "Authorization: Bearer ${ZABBIX_TOKEN}"   -d @- <<'EOF'
 {
   "jsonrpc": "2.0",
   "method": "dashboard.get",
   "params": {
     "dashboardids": [123],
-    "selectWidgets": ["widgetid", "name", "type", "fields"]
+    "selectWidgets": ["widgetid", "name", "type", "fields", "width", "height"]
   },
   "id": 1
 }
@@ -136,15 +92,13 @@ EOF
 **Using a cached session token from `user.login`**
 
 ```bash
-curl -X POST "https://zabbix.example.com/zabbix/api_jsonrpc.php" \
-  -H "Content-Type: application/json" \
-  -d @- <<'EOF'
+curl -X POST "https://zabbix.example.com/zabbix/api_jsonrpc.php"   -H "Content-Type: application/json"   -d @- <<'EOF'
 {
   "jsonrpc": "2.0",
   "method": "dashboard.get",
   "params": {
     "dashboardids": [123],
-    "selectWidgets": ["widgetid", "name", "type", "fields"]
+    "selectWidgets": ["widgetid", "name", "type", "fields", "width", "height"]
   },
   "auth": "${ZABBIX_SESSION}",
   "id": 1
@@ -152,7 +106,7 @@ curl -X POST "https://zabbix.example.com/zabbix/api_jsonrpc.php" \
 EOF
 ```
 
-In the response, the `widgets` array lists each widget. For graph widgets, the `fields` array contains entries such as `graphid`, `timeFrom`, `timeShift`, or a custom `period`. These values mirror what the dashboard stores and can be copied into your MagicMirror config (`dashboardId`, `widgetId`, or `widgetName`) to ensure the mirror matches the original graph and time window.
+In the response, the `widgets` array lists each widget. For graph widgets, the `fields` array contains entries such as `graphid`, `timeFrom`, `timeShift`, or a custom `period`. The `width` and `height` values show the dimensions stored by the dashboard layout. Copy the `dashboardid` and `widgetid` into your MagicMirror config to ensure the mirror always renders the exact widget you maintain in the Zabbix UI.
 
 ### Authentication & Error Handling
 
@@ -177,13 +131,11 @@ API tokens have been available since earlier Zabbix releases and are verified he
 ### Debugging Tips
 
 - Run MagicMirror with `npm start dev` to see console output. Any API errors logged by the helper will show up there.
-- Ensure the user has permission to view the chosen `graphId`. A `Graph was not found` error usually indicates missing rights or a typo in the ID.
+- Ensure the user has permission to view the chosen dashboard and widget. A `Dashboard … was not found` error usually indicates missing rights or a typo in the ID.
 
 ## Development & Testing
 
-The module includes a Jest suite so you can validate its behavior outside of MagicMirror. The tests simulate Zabbix API calls,
-expired sessions, dashboard widget resolution, and PNG downloads, ensuring helper changes do not break authentication or graph
-rendering logic.
+The module includes a Jest suite so you can validate its behavior outside of MagicMirror. The tests simulate Zabbix API calls, expired sessions, dashboard widget resolution, and PNG downloads, ensuring helper changes do not break authentication or graph rendering logic.
 
 ```bash
 cd modules/MMM-ZabbixGraphs
@@ -191,14 +143,11 @@ npm install
 npm test
 ```
 
-The test run displays the mocked API traffic along with any console warnings you would otherwise see in the MagicMirror logs. If
-you are iterating on UI tweaks, keep `npm start dev` running in your MagicMirror directory to confirm that each module instance
-refreshes in sync with the helper output.
+The test run displays the mocked API traffic along with any console warnings you would otherwise see in the MagicMirror logs. If you are iterating on UI tweaks, keep `npm start dev` running in your MagicMirror directory to confirm that each module instance refreshes in sync with the helper output.
 
 ## How it Works
 
 1. `MMM-ZabbixGraphs.js` schedules periodic refreshes and requests data from the helper.
 2. `node_helper.js` authenticates through the JSON-RPC API.
-3. `graph.get` and `graphitem.get` are used to validate access and surface metadata.
+3. `dashboard.get` resolves the configured widget, and `graph.get`/`graphitem.get` validate access and surface metadata.
 4. The PNG is downloaded via `chart2.php` and base64-encoded before being sent back to the browser.
-

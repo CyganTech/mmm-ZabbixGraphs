@@ -8,11 +8,13 @@ describe("node_helper graph fetching", () => {
     zabbixUrl: "https://example.com/zabbix",
     username: "demo",
     password: "secret",
-    graphId: 321,
+    dashboardId: 555,
+    widgetId: 99,
     width: 400,
     height: 200
   };
   const authKey = `${config.zabbixUrl}|${config.username}`;
+  const widgetGraphId = 321;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -35,7 +37,9 @@ describe("node_helper graph fetching", () => {
       arrayBuffer: async () => htmlBuffer
     });
 
-    await expect(helper.fetchGraphImage(config, "fakeAuth"))
+    const effectiveConfig = { ...config, graphId: widgetGraphId };
+
+    await expect(helper.fetchGraphImage(effectiveConfig, "fakeAuth"))
       .rejects.toMatchObject({
         authResetKey: authKey,
         userMessage: expect.stringContaining("re-authenticate")
@@ -43,7 +47,7 @@ describe("node_helper graph fetching", () => {
   });
 
   test("handleGraphRequest emits cached metadata and the fetched image when Zabbix responds", async () => {
-    const cacheKey = helper.getGraphCacheKey(config);
+    const cacheKey = helper.getGraphCacheKey({ ...config, graphId: widgetGraphId });
     const graphItems = [
       { itemid: 1, color: "FF0000" },
       { itemid: 2, color: "00FF00" }
@@ -91,8 +95,30 @@ describe("node_helper graph fetching", () => {
         if (payload.method === "user.login") {
           return buildJsonResponse("authToken123");
         }
+        if (payload.method === "dashboard.get") {
+          return buildJsonResponse([
+            {
+              dashboardid: config.dashboardId,
+              pages: [
+                {
+                  dashboard_pageid: 1,
+                  widgets: [
+                    {
+                      widgetid: String(config.widgetId),
+                      type: "graph",
+                      name: "CPU Usage",
+                      width: config.width,
+                      height: config.height,
+                      fields: [{ name: "graphid.0", value: String(widgetGraphId) }]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]);
+        }
         if (payload.method === "graph.get") {
-          return buildJsonResponse([{ graphid: config.graphId, name: "CPU Usage" }]);
+          return buildJsonResponse([{ graphid: widgetGraphId, name: "CPU Usage" }]);
         }
         if (payload.method === "graphitem.get") {
           return buildJsonResponse(graphItems);
@@ -115,26 +141,28 @@ describe("node_helper graph fetching", () => {
       "GRAPH_RESULT",
       expect.objectContaining({
         title: "CPU Usage",
-        graphId: config.graphId,
+        graphId: widgetGraphId,
+        width: config.width,
+        height: config.height,
         items: graphItems,
         image: pngBase64
       })
     );
   });
 
-  test("handleGraphRequest resolves graphId from a dashboard widget when graphId is omitted", async () => {
-    const dashboardConfig = {
-      ...config,
-      graphId: null,
-      dashboardId: 555,
-      widgetId: 99
-    };
+  test("handleGraphRequest resolves graphId and time settings from a dashboard widget", async () => {
     const resolvedGraphId = 654321;
     const widget = {
-      widgetid: String(dashboardConfig.widgetId),
+      widgetid: String(config.widgetId),
       type: "graph",
       name: "Dashboard CPU",
-      fields: [{ name: "graphid.0", value: String(resolvedGraphId) }]
+      width: 800,
+      height: 400,
+      fields: [
+        { name: "graphid.0", value: String(resolvedGraphId) },
+        { name: "time_from", value: "now-24h" },
+        { name: "time_period", value_int: 7200 }
+      ]
     };
     const graphItems = [{ itemid: 10, color: "AA0000" }];
     const pngBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -161,7 +189,7 @@ describe("node_helper graph fetching", () => {
           case "dashboard.get":
             return buildJsonResponse([
               {
-                dashboardid: dashboardConfig.dashboardId,
+                dashboardid: config.dashboardId,
                 pages: [
                   {
                     dashboard_pageid: 1,
@@ -186,13 +214,15 @@ describe("node_helper graph fetching", () => {
       throw new Error(`Unexpected URL ${url}`);
     });
 
-    await helper.handleGraphRequest(dashboardConfig);
+    await helper.handleGraphRequest(config);
 
     expect(helper.sendSocketNotification).toHaveBeenCalledWith(
       "GRAPH_RESULT",
       expect.objectContaining({
         title: "Dashboard CPU",
         graphId: resolvedGraphId,
+        width: widget.width,
+        height: widget.height,
         items: graphItems,
         image: pngBuffer.toString("base64")
       })
@@ -206,7 +236,24 @@ describe("node_helper graph fetching", () => {
     jest.spyOn(helper, "authenticate").mockResolvedValue("auth");
     jest
       .spyOn(helper, "callZabbixApi")
-      .mockResolvedValueOnce([{ graphid: config.graphId, name: "CPU" }])
+      .mockResolvedValueOnce([
+        {
+          dashboardid: config.dashboardId,
+          pages: [
+            {
+              dashboard_pageid: 1,
+              widgets: [
+                {
+                  widgetid: String(config.widgetId),
+                  type: "graph",
+                  fields: [{ name: "graphid", value: widgetGraphId }]
+                }
+              ]
+            }
+          ]
+        }
+      ])
+      .mockResolvedValueOnce([{ graphid: widgetGraphId, name: "CPU" }])
       .mockResolvedValueOnce([{ itemid: 1 }]);
 
     const err = new Error("expired");
@@ -259,9 +306,9 @@ describe("node_helper graph fetching", () => {
 
     test("callZabbixApi rejects with a readable timeout message", async () => {
       setupAbortableFetch();
-      const timeoutConfig = { ...config, requestTimeoutMs: 25 };
+      const timeoutConfig = { ...config, graphId: widgetGraphId, requestTimeoutMs: 25 };
 
-      const promise = helper.callZabbixApi("graph.get", { graphids: [config.graphId] }, timeoutConfig, "auth");
+      const promise = helper.callZabbixApi("graph.get", { graphids: [widgetGraphId] }, timeoutConfig, "auth");
       jest.advanceTimersByTime(25);
 
       await expect(promise).rejects.toMatchObject({
@@ -272,7 +319,7 @@ describe("node_helper graph fetching", () => {
 
     test("fetchGraphImage rejects with the timeout userMessage", async () => {
       setupAbortableFetch();
-      const timeoutConfig = { ...config, requestTimeoutMs: 30 };
+      const timeoutConfig = { ...config, graphId: widgetGraphId, requestTimeoutMs: 30 };
 
       const promise = helper.fetchGraphImage(timeoutConfig, "auth");
       jest.advanceTimersByTime(30);
@@ -287,9 +334,10 @@ describe("node_helper graph fetching", () => {
   test("callZabbixApi uses apiToken headers and skips user.login", async () => {
     const tokenConfig = {
       ...config,
-      apiToken: " test-token-value "
+      apiToken: " test-token-value ",
+      graphId: widgetGraphId
     };
-    const resultPayload = [{ graphid: config.graphId }];
+    const resultPayload = [{ graphid: widgetGraphId }];
 
     helper.sendSocketNotification = jest.fn();
     fetch.mockResolvedValue({
@@ -300,7 +348,7 @@ describe("node_helper graph fetching", () => {
 
     const response = await helper.callZabbixApi(
       "graph.get",
-      { graphids: [config.graphId], output: "extend" },
+      { graphids: [widgetGraphId], output: "extend" },
       tokenConfig
     );
 
@@ -317,7 +365,7 @@ describe("node_helper graph fetching", () => {
 
   test("resolveGraphReference rejects when no graph or dashboard information is provided", async () => {
     await expect(helper.resolveGraphReference({}, null)).rejects.toMatchObject({
-      message: expect.stringContaining("Missing graphId")
+      message: expect.stringContaining("Missing dashboardId")
     });
   });
 
