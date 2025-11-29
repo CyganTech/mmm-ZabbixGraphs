@@ -17,8 +17,8 @@ module.exports = NodeHelper.create({
     let cacheKey = null;
     try {
       const auth = await this.authenticate(config);
-      const { graphId, widgetTitle } = await this.resolveGraphReference(config, auth);
-      const effectiveConfig = { ...config, graphId };
+      const { graphId, widgetTitle, widgetTimeConfig } = await this.resolveGraphReference(config, auth);
+      const effectiveConfig = { ...(widgetTimeConfig || {}), ...config, graphId };
       cacheKey = this.getGraphCacheKey(effectiveConfig);
       let metadata = cacheKey ? this.graphMetadataCache[cacheKey] : null;
       if (!metadata) {
@@ -356,7 +356,8 @@ module.exports = NodeHelper.create({
     }
 
     const widgetTitle = typeof widget.name === "string" && widget.name.trim().length > 0 ? widget.name.trim() : null;
-    return { graphId, widgetTitle };
+    const widgetTimeConfig = this.extractWidgetTimeConfig(widget);
+    return { graphId, widgetTitle, widgetTimeConfig };
   },
 
   collectDashboardWidgets(dashboard = {}) {
@@ -414,6 +415,45 @@ module.exports = NodeHelper.create({
 
     const value = this.getWidgetFieldValue(graphField);
     return this.normalizeNumericId(value);
+  },
+
+  extractWidgetTimeConfig(widget = {}) {
+    const timeConfig = {};
+    if (!widget || !Array.isArray(widget.fields)) {
+      return timeConfig;
+    }
+
+    widget.fields.forEach(field => {
+      if (!field || typeof field.name !== "string") {
+        return;
+      }
+
+      const name = field.name.trim().toLowerCase();
+      const value = this.getWidgetFieldValue(field);
+
+      if (value === null || value === undefined) {
+        return;
+      }
+
+      if (name === "time_period" || name.startsWith("time_period.")) {
+        const numericValue = Number(value);
+        if (Number.isFinite(numericValue)) {
+          timeConfig.period = numericValue;
+        }
+      } else if (name === "time_from" || name.startsWith("time_from.")) {
+        const stime = typeof value === "string" ? value.trim() : String(value);
+        if (stime.length > 0) {
+          timeConfig.stime = stime;
+        }
+      } else if (name === "time_shift" || name.startsWith("time_shift.")) {
+        const timeShift = typeof value === "string" ? value.trim() : String(value);
+        if (timeShift.length > 0) {
+          timeConfig.timeShift = timeShift;
+        }
+      }
+    });
+
+    return timeConfig;
   },
 
   isGraphField(field) {
