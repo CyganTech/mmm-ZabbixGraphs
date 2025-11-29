@@ -119,7 +119,21 @@ Each module instance sends the configured `graphId`, `width`, `height`, and refr
 
 If you would rather reference an existing dashboard widget, set `dashboardId` and leave `graphId` empty. The helper queries `dashboard.get`, finds the requested widget, and reuses the graph configured inside it. Provide `widgetId` (from the dashboard editor URL) for an exact match or `widgetName` to select the first graph widget with a matching title. When neither is specified, the helper simply picks the first graph widget on the dashboard.
 
-You can find the dashboard ID by opening the dashboard in the Zabbix UI and copying the `dashboardid=<ID>` query parameter from the address bar (`zabbix.php?action=dashboard.view&dashboardid=123`). Widget IDs are shown while editing a dashboard (`widgetid=<ID>` in the URL). Once set up, the module will always display the same graph you configured visually on the dashboard without having to manage host-specific item IDs.
+You can find the dashboard ID by opening the dashboard in the Zabbix UI and copying the `dashboardid=<ID>` query parameter from the address bar (`zabbix.php?action=dashboard.view&dashboardid=123`). Click **Edit** on the dashboard to expose widget URLs, then pick the graph widget you want and copy the `widgetid=<ID>` from the browser location bar while the widget editor is open.
+
+If you are unsure which widget contains the right graph/time window, the Zabbix API Explorer can show you exactly what the dashboard stores:
+
+1. Open **Administration → API → Explore** in the Zabbix UI.
+2. Choose `dashboard.get` and set parameters like:
+   ```json
+   {
+     "dashboardids": [123],
+     "selectWidgets": ["widgetid", "name", "type", "fields"]
+   }
+   ```
+3. Run the call; the `fields` array of each widget includes the graph binding (e.g., `graphid`) and any time overrides (such as `timeFrom`, `timeShift`, or a custom period) configured in the dashboard editor.
+
+Armed with the `dashboardId`/`widgetId` and the field details above, you can point the module at dashboard-controlled graphs with confidence and know that the MagicMirror output mirrors the same source and time controls you configured in Zabbix.
 
 ### Authentication & Error Handling
 
